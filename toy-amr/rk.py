@@ -1,43 +1,52 @@
 import numpy
 from scipy.optimize import fsolve
+import copy
 
-def euler(simulation, cons, prim, aux):
-    dt = simulation.dt
+def euler(simulation, p, dt):
     rhs = simulation.rhs
-    return cons + dt * rhs(cons, prim, aux, simulation)
+    return p.cons + dt * rhs(p, simulation)
 
-def rk2(simulation, cons, prim, aux):
-    dt = simulation.dt
+def rk2(simulation, p, dt):
     rhs = simulation.rhs
-    cons1 = cons + dt * rhs(cons, prim, aux, simulation)
-    cons1 = simulation.bcs(cons1, simulation.grid.Npoints, simulation.grid.Ngz)
-    prim1, aux1 = simulation.model.cons2all(cons1, prim)
-    return 0.5 * (cons + cons1 + dt * rhs(cons1, prim1, aux1, simulation))
+    cons1 = p.cons + dt * rhs(p, simulation)
+    cons1 = simulation.bcs(cons1, p.grid.Npoints, p.grid.Ngz)
+    prim1, aux1 = simulation.model.cons2all(cons1, p.prim)
+    return 0.5 * (p.cons + cons1 + dt * rhs(p, simulation))
 
-def rk3(simulation, cons, prim, aux):
-    dt = simulation.dt
+# TODO: get rid of copies in the below
+def rk3(simulation, p, dt):
     rhs = simulation.rhs
-    cons1 = cons + dt * rhs(cons, prim, aux, simulation)
-    cons1 = simulation.bcs(cons1, simulation.grid.Npoints, simulation.grid.Ngz)
+    cons1 = p.cons + dt * rhs(p, simulation)
+    cons1 = simulation.bcs(cons1, p.grid.Npoints, p.grid.Ngz)
     if simulation.fix_cons:
         cons1 = simulation.model.fix_cons(cons1)
-    prim1, aux1 = simulation.model.cons2all(cons1, prim)
-    cons2 = (3 * cons + cons1 + dt * rhs(cons1, prim1, aux1, simulation)) / 4
-    cons2 = simulation.bcs(cons2, simulation.grid.Npoints, simulation.grid.Ngz)
+    prim1, aux1 = simulation.model.cons2all(cons1, p.prim)
+    p1 = copy.deepcopy(p)
+    p1.cons = cons1
+    p1.prim = prim1
+    p1.aux = aux1
+    cons2 = (3 * p.cons + p1.cons + dt * rhs(p1, simulation)) / 4
+    cons2 = simulation.bcs(cons2, p.grid.Npoints, p.grid.Ngz)
     if simulation.fix_cons:
         cons2 = simulation.model.fix_cons(cons2)
-    prim2, aux2 = simulation.model.cons2all(cons2, prim1)
-    return (cons + 2 * cons2 + 2 * dt * rhs(cons2, prim2, aux2, simulation)) / 3
+    prim2, aux2 = simulation.model.cons2all(cons2, p1.prim)
+    p2 = copy.deepcopy(p)
+    p2.cons = cons2
+    p2.prim = prim2
+    p2.aux = aux2
+    return (p.cons + 2 * cons2 + 2 * dt * rhs(p2, simulation)) / 3
+
+# TODO: fix the rest
 
 def rk_euler_split(rk_method, source):
-    def timestepper(simulation, cons, prim, aux):
+    def timestepper(simulation, cons, prim, aux, dt):
         consstar = rk_method(simulation, cons, prim, aux)
         primstar, auxstar = simulation.model.cons2all(consstar, prim)
-        return consstar + simulation.dt * source(consstar, primstar, auxstar)
+        return consstar + dt * source(consstar, primstar, auxstar)
     return timestepper
 
 def rk_backward_euler_split(rk_method, source):
-    def timestepper(simulation, cons, prim, aux):
+    def timestepper(simulation, cons, prim, aux, dt):
         consstar = rk_method(simulation, cons, prim, aux)
         primstar, auxstar = simulation.model.cons2all(consstar, prim)
         def residual(consguess, cons_star, prim_old):
@@ -45,12 +54,12 @@ def rk_backward_euler_split(rk_method, source):
             prim_old = prim_old.reshape(prim_old.shape[0], 1)
             cons_star = cons_star.reshape(cons_star.shape[0], 1)
             primguess, auxguess = simulation.model.cons2all(consguess, prim_old)
-            return (consguess - cons_star - simulation.dt*source(consguess, primguess, auxguess)).ravel()
+            return (consguess - cons_star - dt*source(consguess, primguess, auxguess)).ravel()
         consnext = numpy.zeros_like(cons)
         cons_initial_guess = consstar + \
-                          0.5*simulation.dt*source(consstar,
-                                                   primstar,
-                                                   auxstar)
+                          0.5*dt*source(consstar,
+                                        primstar,
+                                        auxstar)
         for i in range(cons.shape[1]):
             consnext[:, i] = fsolve(residual, cons_initial_guess[:,i].ravel(),
                                     args=(consstar[:, i].ravel(), prim[:, i].ravel()))
@@ -121,9 +130,8 @@ def imex222(source, source_fprime=None, source_guess=None):
 #        jac -= dt * gamma * source_fprime(consguess, primguess, auxguess)
 #        return jac
     residual1_prime = None
-    def timestepper(simulation, cons, prim, aux):
+    def timestepper(simulation, cons, prim, aux, dt):
         Np = cons.shape[1]
-        dt = simulation.dt
         rhs = simulation.rhs
         consguess = cons.copy()
         if source_guess:
@@ -155,7 +163,7 @@ def imex222(source, source_fprime=None, source_guess=None):
         prim2, aux2 = simulation.model.cons2all(cons2, prim1)
         k2 = rhs(cons2, prim2, aux2, simulation)
         source2 = source(cons2, prim2, aux2)
-        return cons + simulation.dt * (k1 + k2 + source1 + source2) / 2
+        return cons + dt * (k1 + k2 + source1 + source2) / 2
     return timestepper
 
 def imex433(source):
@@ -236,9 +244,8 @@ def imex433(source):
     residual2_prime = None
     residual3_prime = None
     residual4_prime = None
-    def timestepper(simulation, cons, prim, aux):
+    def timestepper(simulation, cons, prim, aux, dt):
         Np = cons.shape[1]
-        dt = simulation.dt
         rhs = simulation.rhs
         consguess = cons.copy()
 
@@ -288,5 +295,5 @@ def imex433(source):
         k4 = rhs(cons4, prim4, aux4, simulation)
         source4 = source(cons4, prim4, aux2)
 
-        return cons + simulation.dt * (k2+k3+4*k4 + source2+source3+4*source4) / 6
+        return cons + dt * (k2+k3+4*k4 + source2+source3+4*source4) / 6
     return timestepper

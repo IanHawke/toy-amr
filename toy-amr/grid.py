@@ -4,23 +4,23 @@ class box(object):
     """
     Defines the location of the box with respect to the parent.
     
-    bnd: (lower, upper). Location of boundaries (integer, wrt parent)
+    bnd: (lower, upper). Location of boundaries (integer, wrt parent, 
+                             Python style [upper bound excluded])
     bbox: (lower, upper). True for physical, False for MR, boundary 
     """
     def __init__(self, bnd, bbox, Ngz):
         self.bnd = bnd
         self.bbox = bbox
-        self.Npoints = 2 * (bnd[1] - bnd[0] + 1)
+        self.Npoints = 2 * (bnd[1] - bnd[0])
         self.Ngz = Ngz
 
 class grid(object):
-    def __init__(self, interval, box, parent=None):
+    def __init__(self, interval, box):
         self.interval = interval
         self.box = box
         self.Npoints = box.Npoints
         self.Ngz = box.Ngz
         self.dx = (self.interval[1] - self.interval[0]) / self.Npoints
-        self.parent = parent
     def coordinates(self):
         x_start = self.interval[0] + (0.5 - self.Ngz) * self.dx
         x_end   = self.interval[1] + (self.Ngz - 0.5) * self.dx
@@ -62,7 +62,16 @@ class patch(object):
             self.cons, self.aux = self.model.prim2all(self.prim)
     def prolong_grid(self):
         for Nv in range(self.Nvars):
-            parent_slopes = minmod(self.parent.prim[Nv, :])
-            for i in range(self.grid.bnd[0], self.grid.bnd[1], 2):
-                raise NotImplementedError
+            parent_slopes = minmod(self.parent.prim[Nv, self.grid.box.bnd[0]-1:self.grid.box.bnd[1]+1])
+            for p_i in range(self.grid.bnd[0], self.grid.bnd[1]):
+                c_i = 2 * (p_i - self.grid.box.bnd[0])
+                self.prim[Nv, c_i] = self.parent.prim[Nv, p_i] - 0.25 * parent_slopes[p_i]
+                self.prim[Nv, c_i+1] = self.parent.prim[Nv, p_i] + 0.25 * parent_slopes[p_i]
+            self.cons, self.aux = self.model.prim2all(self.prim)
+    def restrict_grid(self):
+        for Nv in range(self.Nvars):
+            for p_i in range(self.grid.box.bnd[0], self.grid.box.bnd[1]):
+                c_i = 2 * (p_i - self.grid.box.bnd[0])
+                self.parent.prim[Nv, p_i] = sum(self.prim[Nv, c_i:c_i+2]) / 2
+            self.parent.cons, self.parent.aux = self.model.prim2all(self.parent.prim)
     
