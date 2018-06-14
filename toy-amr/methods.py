@@ -7,7 +7,7 @@ from functools import partial
 def rea_method(reconstruction, flux_solver):
     def rea_solver(patch, simulation):
         cons_m, cons_p = reconstruction(patch.cons, simulation)
-        flux = flux_solver(cons_m, cons_p, simulation)
+        flux = flux_solver(cons_m, cons_p, simulation, patch)
         rhs = numpy.zeros_like(flux)
         rhs[:,1:-1] = 1/patch.grid.dx * (flux[:,1:-1] - flux[:,2:])
         return rhs
@@ -18,7 +18,7 @@ def rea_method_prim(reconstruction, flux_solver):
         prim_m, prim_p = reconstruction(patch.prim, simulation)
         cons_m = simulation.model.prim2all(prim_m)[0]
         cons_p = simulation.model.prim2all(prim_p)[0]
-        flux = flux_solver(cons_m, cons_p, simulation)
+        flux = flux_solver(cons_m, cons_p, simulation, patch)
         rhs = numpy.zeros_like(flux)
         rhs[:,1:-1] = 1/patch.grid.dx * (flux[:,1:-1] - flux[:,2:])
         return rhs
@@ -27,7 +27,7 @@ def rea_method_prim(reconstruction, flux_solver):
 def rea_method_source(reconstruction, flux_solver, source_term):
     def rea_solver(patch, simulation):
         cons_m, cons_p = reconstruction(patch.cons, simulation)
-        flux = flux_solver(cons_m, cons_p, simulation)
+        flux = flux_solver(cons_m, cons_p, simulation, patch)
         rhs = source_term(patch.cons, patch.prim, patch.aux)
         rhs[:,1:-1] += 1/patch.grid.dx * (flux[:,1:-1] - flux[:,2:])
         return rhs

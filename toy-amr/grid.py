@@ -14,23 +14,37 @@ class box(object):
         self.Npoints = 2 * (bnd[1] - bnd[0])
         self.Ngz = Ngz
         
+def make_basebox(Npoints, Ngz):
+    b = box((0, 0), (True, True), Ngz)
+    b.Npoints = Npoints
+    b.bnd = (None, None)
+    return b
 
 class grid(object):
+    """
+    Coordinates of the grid but no data
+    """
     def __init__(self, interval, box):
         self.interval = interval
         self.box = box
         self.Npoints = box.Npoints
         self.Ngz = box.Ngz
         self.dx = (self.interval[1] - self.interval[0]) / self.Npoints
+    
     def coordinates(self):
         x_start = self.interval[0] + (0.5 - self.Ngz) * self.dx
         x_end   = self.interval[1] + (self.Ngz - 0.5) * self.dx
         return numpy.linspace(x_start, x_end, self.Npoints + 2 * self.Ngz)
+    
     def interior_coordinates(self):
         x_start = self.interval[0] + 0.5 * self.dx
         x_end   = self.interval[1] - 0.5 * self.dx
         return numpy.linspace(x_start, x_end, self.Npoints)
         
+def make_basegrid(interval, Npoints, Ngz):
+    b = make_basebox(Npoints, Ngz)
+    return grid(interval, b)
+
 
 def minmod(y):
     slope_l = numpy.zeros_like(y)
@@ -67,7 +81,7 @@ class patch(object):
             self.prim = self.model.initial_data(self.grid.coordinates())
             self.cons, self.aux = self.model.prim2all(self.prim)
             
-    def prolong_grid(self):
+    def prolong_patch(self):
         for Nv in range(self.Nvars):
             parent_slopes = minmod(self.parent.prim[Nv, self.grid.box.bnd[0]-1:self.grid.box.bnd[1]+1])
             for p_i in range(self.grid.bnd[0], self.grid.bnd[1]):
@@ -76,7 +90,7 @@ class patch(object):
                 self.prim[Nv, c_i+1] = self.parent.prim[Nv, p_i] + 0.25 * parent_slopes[p_i]
             self.cons, self.aux = self.model.prim2all(self.prim)
             
-    def restrict_grid(self):
+    def restrict_patch(self):
         self.local_error = 0.0
         for Nv in range(self.Nvars):
             for p_i in range(self.grid.box.bnd[0], self.grid.box.bnd[1]):

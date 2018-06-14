@@ -26,7 +26,7 @@ class euler_gamma_law(object):
         aux[0, :] = p
         return cons, aux
     
-    def cons2all(self, cons):
+    def cons2all(self, cons, prim_old):
         rho = cons[0, :]
         v   = cons[1, :] / rho
         eps = cons[2, :] / rho - 0.5 * v**2

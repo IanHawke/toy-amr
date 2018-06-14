@@ -1,10 +1,10 @@
 import numpy
 
-def lax_friedrichs(cons_minus, cons_plus, simulation):
-    alpha = simulation.dx / simulation.dt
+def lax_friedrichs(cons_minus, cons_plus, simulation, patch):
+    alpha = patch.grid.dx / patch.dt
     flux = numpy.zeros_like(cons_minus)
-    prim_minus, aux_minus = simulation.model.cons2all(cons_minus, simulation.prim)
-    prim_plus,  aux_plus  = simulation.model.cons2all(cons_plus , simulation.prim)
+    prim_minus, aux_minus = simulation.model.cons2all(cons_minus, patch.prim)
+    prim_plus,  aux_plus  = simulation.model.cons2all(cons_plus , patch.prim)
     f_minus = simulation.model.flux(cons_minus, prim_minus, aux_minus)
     f_plus  = simulation.model.flux(cons_plus,  prim_plus,  aux_plus )
     
@@ -13,7 +13,7 @@ def lax_friedrichs(cons_minus, cons_plus, simulation):
     
     return flux
 
-def upwind(cons_minus, cons_plus, simulation):
+def upwind(cons_minus, cons_plus, simulation, patch):
     flux = numpy.zeros_like(cons_minus)
     flux[:, 1:-1] = simulation.model.riemann_problem_flux(cons_plus [:, 0:-2], 
                                                           cons_minus[:, 1:-1])

@@ -3,31 +3,44 @@ from matplotlib import pyplot
 import grid
 
 class simulation(object):
-    def __init__(self, model, basegrid, rhs, timestepper, bcs, cfl=0.5):
+    def __init__(self, model, interval, Npoints, Ngz, rhs, timestepper, bcs, cfl=0.5,
+                 threshold=1, max_levels=1):
         self.model = model
         self.Nvars = len(model.cons_names)
         self.Nprim = len(model.prim_names)
         self.Naux  = len(model.aux_names)
-        self.basegrid = basegrid
+        self.basegrid = grid.make_basegrid(interval, Npoints, Ngz)
         self.rhs = rhs
         self.timestepper = timestepper
         self.bcs = bcs
         self.cfl = cfl
-        self.coordinates = basegrid.coordinates()
+        self.threshold = threshold
+        self.max_levels = max_levels
+        self.coordinates = self.basegrid.coordinates()
         
         self.t = 0.0
-        self.Nt = 0
-        self.patches = [[grid.patch(basegrid, model, self.t, self.Nt)]]
+        self.iterations = numpy.zeros(max_levels)
+        self.patches = [[grid.patch(self.basegrid, model, self.t, 0)]]
+        self.iteration_steps = 2**numpy.arange(max_levels-1, -1, -1)
         self.fix_cons = getattr(model, "fix_cons", None)
         self.source_fprime = getattr(model, "source_fprime", None)
         self.source_guess = getattr(model, "source_guess", None)
         
-    def evolve_level_one_step(self, t_end, level):
-        if level == 0:
-            dt = self.cfl * self.basegrid.dx # Not varying timesteps
-            if self.t + dt > t_end:
-                dt = t_end - self.t
+    def evolve_level_one_step(self, dt, level):
+        """
+        This should be where a lot of the work happens.
+        
+        You evolve a given level. If there is a finer level you recurse down to
+        that one, evolve that until it's at the same time as this level.
+        
+        Having evolved, you restrict data from finer levels to coarser. Then
+        you regrid levels that are at the same time (the error measure is
+        computed when restricting). By the coarse -> fine -> coarse unwinding
+        of the recursion this *should* guarantee that all patches are properly
+        nested.
+        """
         for p in self.patches[level]:
+            p.dt = dt
             p.cons = self.timestepper(self, p, dt)
             if self.fix_cons:
                 p.cons = self.fix_cons(p.cons)
@@ -36,16 +49,23 @@ class simulation(object):
             else:
                 p.prolong_boundary()
             p.prim, p.aux = self.model.cons2all(p.cons, p.prim)
-            if level < len(self.patches):
-                self.evolve_level_one_step(self.t + dt/2, level+1)
-                self.evolve_level_one_step(self.t + dt  , level+1)
-        self.t += self.dt
+            if level < len(self.patches)-1:
+                self.evolve_level_one_step(dt/2, level+1)
+                self.evolve_level_one_step(dt/2, level+1)
+        self.iterations[level] += self.iteration_steps[level]
+        if (level > 0) and (self.iterations[level-1] == self.iterations[level]):
+            for p in self.patches[level]:
+                p.restrict_patch()
+            for p in self.patches[level]:
+                p.regrid_patch()
         
     def evolve(self, t_end):
-        self.Nt = 0
         while self.t < t_end:
-            self.Nt += 1
-            self.evolve_level_one_step(t_end, 0)
+            dt = self.cfl * self.basegrid.dx # Not varying timesteps
+            if self.t + dt > t_end:
+                dt = t_end - self.t
+            self.evolve_level_one_step(dt, 0)
+            self.t += dt
             print('t={}'.format(self.t))
 
     def plot_scalar(self):
@@ -58,8 +78,8 @@ class simulation(object):
                 x = patch.grid.interior_coordinates()
                 ax.plot(x, patch.prim[0, 
                               patch.grid.Ngz:patch.grid.Ngz+patch.grid.Npoints])
-            qmax = max(qmax, numpy.max(self.prim[0,:]))
-            qmin = min(qmin, numpy.min(self.prim[0,:]))
+            qmax = max(qmax, numpy.max(patch.prim[0,:]))
+            qmin = min(qmin, numpy.min(patch.prim[0,:]))
         ax.set_xlabel(r"$x$")
         ax.set_ylabel(r"$q$")
         ax.set_xlim(self.patches[0][0].grid.interval[0],self.patches[0][0].grid.interval[1])
