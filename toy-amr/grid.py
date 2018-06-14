@@ -50,9 +50,12 @@ class patch(object):
         self.Nvars = len(model.cons_names)
         self.Nprim = len(model.prim_names)
         self.Naux  = len(model.aux_names)
+        self.Npoints = grid.Npoints
+        self.Ngz = grid.Ngz
         self.prim = numpy.zeros((self.Nprim, self.grid.Npoints + 2 * self.grid.Ngz))
         self.cons = numpy.zeros((self.Nvars, self.grid.Npoints + 2 * self.grid.Ngz))
         self.aux  = numpy.zeros((self.Naux , self.grid.Npoints + 2 * self.grid.Ngz))
+        self.local_error = numpy.zeros(self.grid.Npoints + 2 * self.grid.Ngz)
         self.t = t
         self.Nt = Nt
         if self.Nt:
@@ -69,9 +72,54 @@ class patch(object):
                 self.prim[Nv, c_i+1] = self.parent.prim[Nv, p_i] + 0.25 * parent_slopes[p_i]
             self.cons, self.aux = self.model.prim2all(self.prim)
     def restrict_grid(self):
+        self.local_error = 0.0
         for Nv in range(self.Nvars):
             for p_i in range(self.grid.box.bnd[0], self.grid.box.bnd[1]):
                 c_i = 2 * (p_i - self.grid.box.bnd[0])
-                self.parent.prim[Nv, p_i] = sum(self.prim[Nv, c_i:c_i+2]) / 2
+                restricted_value = sum(self.prim[Nv, c_i:c_i+2]) / 2
+                self.local_error[c_i:c_i+2] += abs(restricted_value - 
+                                                self.parent.prim[Nv, p_i])
+                self.parent.prim[Nv, p_i] = restricted_value
             self.parent.cons, self.parent.aux = self.model.prim2all(self.parent.prim)
-    
+    def regrid_patch(self, threshold):
+        local_error = self.local_error > threshold
+        # Set ghosts to False to avoid boundary problems
+        local_error[:self.Ngz] = False
+        local_error[-self.Ngz:] = False
+        # Pad the array: pad by number of ghosts, hardcoded
+        for i in range(self.Ngz, self.Npoints+self.Ngz):
+            local_error[i] = (local_error[i] or 
+                              numpy.any(local_error[i-self.Ngz:i+self.Ngz]))
+        # Re-set ghosts to False to avoid boundary problems
+        local_error[:self.Ngz] = False
+        local_error[-self.Ngz:] = False
+        # Find edges of boxes to be refined
+        starts = []
+        ends = []
+        for i in range(self.Ngz, self.Npoints+self.Ngz):
+            if (not(local_error[i-1]) and local_error[i]):
+                starts.append(i)
+            elif (local_error[i] and not(local_error[i+1])):
+                ends.append(i+1)
+        # Gather into bounding boxes
+        bnds = zip(starts, ends)
+        # Create the boxes and grids
+        grids = []
+        for bnd in bnds:
+            # Check boundaries
+            bbox = [False, False]
+            if bnd[0] == 0:
+                bbox[0] = self.grid.bbox[0]
+            elif bnd[1] == self.Npoints + self.Ngz:
+                bbox[1] = self.grid.bbox[1]
+            # Create the bbox
+            b = box(bnd, bbox, self.Ngz)
+            interval = (self.interval[0] + bnd[0] * self.dx,
+                        self.interval[0] + bnd[1] * self.dx)
+            g = grid(interval, b)
+            grids.append(g)
+        # Now create the patches
+        patches = []
+        # ...
+        return patches
+        
