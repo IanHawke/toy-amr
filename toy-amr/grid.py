@@ -13,6 +13,7 @@ class box(object):
         self.bbox = bbox
         self.Npoints = 2 * (bnd[1] - bnd[0])
         self.Ngz = Ngz
+        
 
 class grid(object):
     def __init__(self, interval, box):
@@ -39,6 +40,7 @@ def minmod(y):
     slope = numpy.min(numpy.abs(slope_l), numpy.abs(slope_r)) * numpy.sign(slope_l)
     return slope
 
+
 class patch(object):
     """
     A grid with data on it
@@ -59,10 +61,12 @@ class patch(object):
         self.t = t
         self.Nt = Nt
         if self.Nt:
+            assert(self.parent is not None)
             self.prolong_grid()
         else:
             self.prim = self.model.initial_data(self.grid.coordinates())
             self.cons, self.aux = self.model.prim2all(self.prim)
+            
     def prolong_grid(self):
         for Nv in range(self.Nvars):
             parent_slopes = minmod(self.parent.prim[Nv, self.grid.box.bnd[0]-1:self.grid.box.bnd[1]+1])
@@ -71,6 +75,7 @@ class patch(object):
                 self.prim[Nv, c_i] = self.parent.prim[Nv, p_i] - 0.25 * parent_slopes[p_i]
                 self.prim[Nv, c_i+1] = self.parent.prim[Nv, p_i] + 0.25 * parent_slopes[p_i]
             self.cons, self.aux = self.model.prim2all(self.prim)
+            
     def restrict_grid(self):
         self.local_error = 0.0
         for Nv in range(self.Nvars):
@@ -81,15 +86,17 @@ class patch(object):
                                                 self.parent.prim[Nv, p_i])
                 self.parent.prim[Nv, p_i] = restricted_value
             self.parent.cons, self.parent.aux = self.model.prim2all(self.parent.prim)
+            
     def regrid_patch(self, threshold):
-        local_error = self.local_error > threshold
+        error_flag = self.local_error > threshold
+        local_error = error_flag.copy()
         # Set ghosts to False to avoid boundary problems
         local_error[:self.Ngz] = False
         local_error[-self.Ngz:] = False
         # Pad the array: pad by number of ghosts, hardcoded
         for i in range(self.Ngz, self.Npoints+self.Ngz):
-            local_error[i] = (local_error[i] or 
-                              numpy.any(local_error[i-self.Ngz:i+self.Ngz]))
+            local_error[i] = (error_flag[i] or 
+                              numpy.any(error_flag[i-self.Ngz:i+self.Ngz]))
         # Re-set ghosts to False to avoid boundary problems
         local_error[:self.Ngz] = False
         local_error[-self.Ngz:] = False
@@ -109,17 +116,18 @@ class patch(object):
             # Check boundaries
             bbox = [False, False]
             if bnd[0] == 0:
-                bbox[0] = self.grid.bbox[0]
+                bbox[0] = self.grid.box.bbox[0]
             elif bnd[1] == self.Npoints + self.Ngz:
-                bbox[1] = self.grid.bbox[1]
+                bbox[1] = self.grid.box.bbox[1]
             # Create the bbox
             b = box(bnd, bbox, self.Ngz)
-            interval = (self.interval[0] + bnd[0] * self.dx,
-                        self.interval[0] + bnd[1] * self.dx)
+            interval = (self.grid.interval[0] + (bnd[0] - self.Ngz) * self.grid.dx,
+                        self.grid.interval[0] + (bnd[1] - self.Ngz) * self.grid.dx)
             g = grid(interval, b)
             grids.append(g)
         # Now create the patches
         patches = []
-        # ...
+        for g in grids:
+            patches.append(patch(g, self.model, self.t, self.Nt, self))
         return patches
         
