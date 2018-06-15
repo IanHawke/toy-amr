@@ -2,39 +2,41 @@ import numpy
 from scipy.optimize import fsolve
 import copy
 
-def euler(simulation, p, dt):
-    rhs = simulation.rhs
-    return p.cons + dt * rhs(p, simulation)
+# TODO: everything needs to be timelevel aware.
 
-def rk2(simulation, p, dt):
+def euler(simulation, tl, dt):
     rhs = simulation.rhs
-    cons1 = p.cons + dt * rhs(p, simulation)
-    cons1 = simulation.bcs(cons1, p.grid.Npoints, p.grid.Ngz)
-    prim1, aux1 = simulation.model.cons2all(cons1, p.prim)
-    return 0.5 * (p.cons + cons1 + dt * rhs(p, simulation))
+    return tl.cons + dt * rhs(tl, simulation)
+
+def rk2(simulation, tl, dt):
+    rhs = simulation.rhs
+    cons1 = tl.cons + dt * rhs(tl, simulation)
+    cons1 = simulation.bcs(cons1, tl.grid.Npoints, tl.grid.Ngz)
+    prim1, aux1 = simulation.model.cons2all(cons1, tl.prim)
+    return 0.5 * (tl.cons + cons1 + dt * rhs(tl, simulation))
 
 # TODO: get rid of copies in the below
-def rk3(simulation, p, dt):
+def rk3(simulation, tl, dt):
     rhs = simulation.rhs
-    cons1 = p.cons + dt * rhs(p, simulation)
-    cons1 = simulation.bcs(cons1, p.grid.Npoints, p.grid.Ngz)
+    cons1 = tl.cons + dt * rhs(tl, simulation)
+    cons1 = simulation.bcs(cons1, tl.grid.Npoints, tl.grid.Ngz)
     if simulation.fix_cons:
         cons1 = simulation.model.fix_cons(cons1)
-    prim1, aux1 = simulation.model.cons2all(cons1, p.prim)
-    p1 = copy.deepcopy(p)
-    p1.cons = cons1
-    p1.prim = prim1
-    p1.aux = aux1
-    cons2 = (3 * p.cons + p1.cons + dt * rhs(p1, simulation)) / 4
-    cons2 = simulation.bcs(cons2, p.grid.Npoints, p.grid.Ngz)
+    prim1, aux1 = simulation.model.cons2all(cons1, tl.prim)
+    tl1 = copy.deepcopy(tl)
+    tl1.cons = cons1
+    tl1.prim = prim1
+    tl1.aux = aux1
+    cons2 = (3 * tl.cons + tl1.cons + dt * rhs(tl1, simulation)) / 4
+    cons2 = simulation.bcs(cons2, tl.grid.Npoints, tl.grid.Ngz)
     if simulation.fix_cons:
         cons2 = simulation.model.fix_cons(cons2)
-    prim2, aux2 = simulation.model.cons2all(cons2, p1.prim)
-    p2 = copy.deepcopy(p)
-    p2.cons = cons2
-    p2.prim = prim2
-    p2.aux = aux2
-    return (p.cons + 2 * cons2 + 2 * dt * rhs(p2, simulation)) / 3
+    prim2, aux2 = simulation.model.cons2all(cons2, tl1.prim)
+    tl2 = copy.deepcopy(tl)
+    tl2.cons = cons2
+    tl2.prim = prim2
+    tl2.aux = aux2
+    return (tl.cons + 2 * cons2 + 2 * dt * rhs(tl2, simulation)) / 3
 
 # TODO: fix the rest
 

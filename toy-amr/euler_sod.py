@@ -9,7 +9,7 @@ from rk import rk3
 from matplotlib import pyplot
 
 Ngz = 3
-Npoints = 20
+Npoints = 200
 L = 1
 interval = [-L, L]
 

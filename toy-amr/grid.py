@@ -1,4 +1,5 @@
 import numpy
+import copy
 
 class box(object):
     """
@@ -53,15 +54,15 @@ def minmod(y):
     slope_r[:-1] = numpy.diff(y)
     slope = numpy.min(numpy.abs(slope_l), numpy.abs(slope_r)) * numpy.sign(slope_l)
     return slope
-
-
-class patch(object):
+    
+class timelevel(object):
     """
-    A grid with data on it
+    A grid with data on it, but only a single timelevel
+    
+    As there is only one timelevel the parent doesn't make sense?
     """
-    def __init__(self, grid, model, t, Nt, parent=None):
+    def __init__(self, grid, model, t, do_init=False):
         self.grid = grid
-        self.parent = parent
         self.model = model
         self.Nvars = len(model.cons_names)
         self.Nprim = len(model.prim_names)
@@ -71,35 +72,57 @@ class patch(object):
         self.prim = numpy.zeros((self.Nprim, self.grid.Npoints + 2 * self.grid.Ngz))
         self.cons = numpy.zeros((self.Nvars, self.grid.Npoints + 2 * self.grid.Ngz))
         self.aux  = numpy.zeros((self.Naux , self.grid.Npoints + 2 * self.grid.Ngz))
-        self.local_error = numpy.zeros(self.grid.Npoints + 2 * self.grid.Ngz)
         self.t = t
-        self.Nt = Nt
-        if self.Nt:
-            assert(self.parent is not None)
-            self.prolong_grid()
-        else:
+        if do_init:
             self.prim = self.model.initial_data(self.grid.coordinates())
             self.cons, self.aux = self.model.prim2all(self.prim)
+
+class patch(object):
+    """
+    A grid with data on it
+    
+    Note the big difference between this and the unigrid version: we need two
+    timelevels of data.
+    """
+    def __init__(self, grid, model, t, parent=None):
+        self.grid = grid
+        self.parent = parent
+        self.model = model
+        self.Nvars = len(model.cons_names)
+        self.Nprim = len(model.prim_names)
+        self.Naux  = len(model.aux_names)
+        self.Npoints = grid.Npoints
+        self.Ngz = grid.Ngz
+        self.local_error = numpy.zeros(self.grid.Npoints + 2 * self.grid.Ngz)
+        self.t = t
+        if self.parent:
+            self.prolong_grid()
+        else:
+            self.tl = timelevel(self.grid, self.model, self.t, True)
+            self.tl_p = copy.deepcopy(self.tl)
             
+    def swap_timelevels(self):
+        self.tl, self.tl_p = self.tl_p, self.tl
+        
     def prolong_patch(self):
         for Nv in range(self.Nvars):
-            parent_slopes = minmod(self.parent.prim[Nv, self.grid.box.bnd[0]-1:self.grid.box.bnd[1]+1])
+            parent_slopes = minmod(self.parent.tl.prim[Nv, self.grid.box.bnd[0]-1:self.grid.box.bnd[1]+1])
             for p_i in range(self.grid.bnd[0], self.grid.bnd[1]):
                 c_i = 2 * (p_i - self.grid.box.bnd[0])
-                self.prim[Nv, c_i] = self.parent.prim[Nv, p_i] - 0.25 * parent_slopes[p_i]
-                self.prim[Nv, c_i+1] = self.parent.prim[Nv, p_i] + 0.25 * parent_slopes[p_i]
-            self.cons, self.aux = self.model.prim2all(self.prim)
+                self.tl.prim[Nv, c_i] = self.parent.tl.prim[Nv, p_i] - 0.25 * parent_slopes[p_i]
+                self.tl.prim[Nv, c_i+1] = self.parent.tl.prim[Nv, p_i] + 0.25 * parent_slopes[p_i]
+            self.tl.cons, self.tl.aux = self.model.prim2all(self.tl.prim)
             
     def restrict_patch(self):
         self.local_error = 0.0
         for Nv in range(self.Nvars):
             for p_i in range(self.grid.box.bnd[0], self.grid.box.bnd[1]):
                 c_i = 2 * (p_i - self.grid.box.bnd[0])
-                restricted_value = sum(self.prim[Nv, c_i:c_i+2]) / 2
+                restricted_value = sum(self.tl.prim[Nv, c_i:c_i+2]) / 2
                 self.local_error[c_i:c_i+2] += abs(restricted_value - 
-                                                self.parent.prim[Nv, p_i])
-                self.parent.prim[Nv, p_i] = restricted_value
-            self.parent.cons, self.parent.aux = self.model.prim2all(self.parent.prim)
+                                                self.parent.tl.prim[Nv, p_i])
+                self.parent.tl.prim[Nv, p_i] = restricted_value
+            self.parent.tl.cons, self.parent.tl.aux = self.model.prim2all(self.parent.tl.prim)
             
     def regrid_patch(self, threshold):
         error_flag = self.local_error > threshold
@@ -142,6 +165,6 @@ class patch(object):
         # Now create the patches
         patches = []
         for g in grids:
-            patches.append(patch(g, self.model, self.t, self.Nt, self))
+            patches.append(patch(g, self.model, self.t, self))
         return patches
         

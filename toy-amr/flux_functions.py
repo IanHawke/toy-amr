@@ -1,10 +1,10 @@
 import numpy
 
-def lax_friedrichs(cons_minus, cons_plus, simulation, patch):
-    alpha = patch.grid.dx / patch.dt
+def lax_friedrichs(cons_minus, cons_plus, simulation, tl):
+    alpha = tl.grid.dx / tl.dt
     flux = numpy.zeros_like(cons_minus)
-    prim_minus, aux_minus = simulation.model.cons2all(cons_minus, patch.prim)
-    prim_plus,  aux_plus  = simulation.model.cons2all(cons_plus , patch.prim)
+    prim_minus, aux_minus = simulation.model.cons2all(cons_minus, tl.prim)
+    prim_plus,  aux_plus  = simulation.model.cons2all(cons_plus , tl.prim)
     f_minus = simulation.model.flux(cons_minus, prim_minus, aux_minus)
     f_plus  = simulation.model.flux(cons_plus,  prim_plus,  aux_plus )
     

@@ -20,7 +20,7 @@ class simulation(object):
         
         self.t = 0.0
         self.iterations = numpy.zeros(max_levels)
-        self.patches = [[grid.patch(self.basegrid, model, self.t, 0)]]
+        self.patches = [[grid.patch(self.basegrid, model, self.t)]]
         self.iteration_steps = 2**numpy.arange(max_levels-1, -1, -1)
         self.fix_cons = getattr(model, "fix_cons", None)
         self.source_fprime = getattr(model, "source_fprime", None)
@@ -41,14 +41,20 @@ class simulation(object):
         """
         for p in self.patches[level]:
             p.dt = dt
-            p.cons = self.timestepper(self, p, dt)
+            # Flip timelevels
+            p.swap_timelevels()
+            tl = p.tl
+            tl_p = p.tl_p
+            tl.dt = dt
+            tl_p.dt = dt
+            tl.cons = self.timestepper(self, tl_p, dt)
             if self.fix_cons:
-                p.cons = self.fix_cons(p.cons)
+                tl.cons = self.fix_cons(tl.cons)
             if level == 0:
-                p.cons = self.bcs(p.cons, p.grid.Npoints, p.grid.Ngz)
+                tl.cons = self.bcs(tl.cons, tl.grid.Npoints, tl.grid.Ngz)
             else:
                 p.prolong_boundary()
-            p.prim, p.aux = self.model.cons2all(p.cons, p.prim)
+            tl.prim, tl.aux = self.model.cons2all(tl.cons, tl.prim)
             if level < len(self.patches)-1:
                 self.evolve_level_one_step(dt/2, level+1)
                 self.evolve_level_one_step(dt/2, level+1)
@@ -76,10 +82,10 @@ class simulation(object):
         for level in self.patches:
             for patch in level:
                 x = patch.grid.interior_coordinates()
-                ax.plot(x, patch.prim[0, 
+                ax.plot(x, patch.tl.prim[0, 
                               patch.grid.Ngz:patch.grid.Ngz+patch.grid.Npoints])
-            qmax = max(qmax, numpy.max(patch.prim[0,:]))
-            qmin = min(qmin, numpy.min(patch.prim[0,:]))
+            qmax = max(qmax, numpy.max(patch.tl.prim[0,:]))
+            qmin = min(qmin, numpy.min(patch.tl.prim[0,:]))
         ax.set_xlabel(r"$x$")
         ax.set_ylabel(r"$q$")
         ax.set_xlim(self.patches[0][0].grid.interval[0],self.patches[0][0].grid.interval[1])
@@ -88,6 +94,8 @@ class simulation(object):
         pyplot.title(r"Solution at $t={}$".format(self.t))
         return fig
         
+    # TODO: this is broken
+    
     def plot_system(self):
         Nprim = len(self.model.prim_names)
         Naux  = len(self.model.aux_names)
