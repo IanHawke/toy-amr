@@ -52,7 +52,7 @@ def minmod(y):
     slope_r = numpy.zeros_like(y)
     slope_l[1:] = numpy.diff(y)
     slope_r[:-1] = numpy.diff(y)
-    slope = numpy.min(numpy.abs(slope_l), numpy.abs(slope_r)) * numpy.sign(slope_l)
+    slope = numpy.minimum(numpy.abs(slope_l), numpy.abs(slope_r)) * numpy.sign(slope_l)
     return slope
     
 class timelevel(object):
@@ -96,7 +96,7 @@ class patch(object):
         self.local_error = numpy.zeros(self.grid.Npoints + 2 * self.grid.Ngz)
         self.t = t
         if self.parent:
-            self.prolong_grid()
+            self.prolong_patch()
         else:
             self.tl = timelevel(self.grid, self.model, self.t, True)
             self.tl_p = copy.deepcopy(self.tl)
@@ -105,13 +105,17 @@ class patch(object):
         self.tl, self.tl_p = self.tl_p, self.tl
         
     def prolong_patch(self):
+        assert(self.parent is not None)
+        self.tl = timelevel(self.grid, self.model, self.t)
+        parent_slopes = numpy.zeros_like(self.parent.tl.prim)
         for Nv in range(self.Nvars):
-            parent_slopes = minmod(self.parent.tl.prim[Nv, self.grid.box.bnd[0]-1:self.grid.box.bnd[1]+1])
-            for p_i in range(self.grid.bnd[0], self.grid.bnd[1]):
-                c_i = 2 * (p_i - self.grid.box.bnd[0])
-                self.tl.prim[Nv, c_i] = self.parent.tl.prim[Nv, p_i] - 0.25 * parent_slopes[p_i]
-                self.tl.prim[Nv, c_i+1] = self.parent.tl.prim[Nv, p_i] + 0.25 * parent_slopes[p_i]
+            parent_slopes[Nv,self.grid.box.bnd[0]-1:self.grid.box.bnd[1]+1] = minmod(self.parent.tl.prim[Nv, self.grid.box.bnd[0]-1:self.grid.box.bnd[1]+1])
+            for p_i in range(self.grid.box.bnd[0], self.grid.box.bnd[1]):
+                c_i = 2 * (p_i - self.grid.box.bnd[0]) + self.Ngz
+                self.tl.prim[Nv, c_i  ] = self.parent.tl.prim[Nv, p_i] - 0.25 * parent_slopes[Nv, p_i]
+                self.tl.prim[Nv, c_i+1] = self.parent.tl.prim[Nv, p_i] + 0.25 * parent_slopes[Nv, p_i]
             self.tl.cons, self.tl.aux = self.model.prim2all(self.tl.prim)
+        self.tl_p = copy.deepcopy(self.tl)
             
     def prolong_boundaries(self, tplus):
         """
@@ -129,7 +133,7 @@ class patch(object):
             for Nv in range(self.Nvars):
                 parent_slopes = minmod(self.parent.tl.prim[Nv, self.grid.box.bnd[0]-self.Ngz-1:self.grid.box.bnd[0]+self.Ngz+1])
                 for p_i in range(self.grid.bnd[0], self.grid.bnd[1]):
-                    c_i = 2 * (p_i - self.grid.box.bnd[0])
+                    c_i = 2 * (p_i - self.grid.box.bnd[0]) + self.Ngz
                     self.tl.prim[Nv, c_i] = self.parent.tl.prim[Nv, p_i] - 0.25 * parent_slopes[p_i]
                     self.tl.prim[Nv, c_i+1] = self.parent.tl.prim[Nv, p_i] + 0.25 * parent_slopes[p_i]
             pass
@@ -138,10 +142,12 @@ class patch(object):
 
     
     def restrict_patch(self):
-        self.local_error = 0.0
+        assert(self.parent is not None), "This patch has no parent"
+        # TODO: again, check patches are time aligned
+        self.local_error[:] = 0.0
         for Nv in range(self.Nvars):
             for p_i in range(self.grid.box.bnd[0], self.grid.box.bnd[1]):
-                c_i = 2 * (p_i - self.grid.box.bnd[0])
+                c_i = 2 * (p_i - self.grid.box.bnd[0]) + self.Ngz
                 restricted_value = sum(self.tl.prim[Nv, c_i:c_i+2]) / 2
                 self.local_error[c_i:c_i+2] += abs(restricted_value - 
                                                 self.parent.tl.prim[Nv, p_i])
