@@ -113,6 +113,30 @@ class patch(object):
                 self.tl.prim[Nv, c_i+1] = self.parent.tl.prim[Nv, p_i] + 0.25 * parent_slopes[p_i]
             self.tl.cons, self.tl.aux = self.model.prim2all(self.tl.prim)
             
+    def prolong_boundaries(self, tplus):
+        """
+        This patch is at time self.t + self.dt * tplus for tplus in [0, 1].
+        This can happen when boundaries need filling in the middle of RK steps.
+        """
+        assert(self.parent is not None), "This patch has no parent"
+        # TODO: Should check iteration alignment?
+        # Weights for time interpolation
+        child_t = self.t + self.dt * tplus
+        weight = (self.parent.t - child_t) / self.parent.dt
+        weight_p = 1 - weight
+        if not(self.grid.box.bnd[0]): # We need to do the left boundary
+            raise NotImplementedError
+            for Nv in range(self.Nvars):
+                parent_slopes = minmod(self.parent.tl.prim[Nv, self.grid.box.bnd[0]-self.Ngz-1:self.grid.box.bnd[0]+self.Ngz+1])
+                for p_i in range(self.grid.bnd[0], self.grid.bnd[1]):
+                    c_i = 2 * (p_i - self.grid.box.bnd[0])
+                    self.tl.prim[Nv, c_i] = self.parent.tl.prim[Nv, p_i] - 0.25 * parent_slopes[p_i]
+                    self.tl.prim[Nv, c_i+1] = self.parent.tl.prim[Nv, p_i] + 0.25 * parent_slopes[p_i]
+            pass
+        if not(self.grid.box.bnd[1]): # We need to do the right boundary
+            pass
+
+    
     def restrict_patch(self):
         self.local_error = 0.0
         for Nv in range(self.Nvars):
